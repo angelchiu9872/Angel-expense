@@ -1,21 +1,19 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { PieChart, Pie, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
+import { 
+  PieChart, Pie, BarChart, Bar, XAxis, YAxis, Tooltip, 
+  ResponsiveContainer, Cell, CartesianGrid, Legend 
+} from 'recharts';
 import { 
   PenSquare, 
-  PieChart as ChartIcon, 
   Wallet, 
-  Calendar, 
-  TrendingUp, 
   RefreshCw, 
   AlertCircle, 
-  CheckCircle2, 
-  Circle,
-  Calculator,
+  Calculator, 
+  LayoutDashboard,
   ArrowUpCircle,
   ArrowDownCircle,
-  LayoutDashboard,
-  BarChart3,
-  PieChart as PieIcon
+  TrendingUp,
+  Target
 } from 'lucide-react';
 
 // --- 色彩與配置 ---
@@ -31,7 +29,6 @@ const theme = {
   danger: '#D98A8A'
 };
 
-// 指定的固定排序
 const CATEGORY_ORDER = ['食物', '衣物', '娛樂', '交通', '教育', '孝親', '股票', '儲蓄', '保養', '醫療', '國家', '收入', '其他'];
 
 // --- CSV 解析工具 ---
@@ -70,6 +67,7 @@ const parseCSV = (csvText) => {
           id: i,
           date: dateObj.toISOString().split('T')[0],
           month: `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`,
+          year: `${dateObj.getFullYear()}`,
           category: category,
           amount: Math.abs(amount) 
         });
@@ -79,83 +77,13 @@ const parseCSV = (csvText) => {
   return parsedData;
 };
 
-// ==========================================
-// 主要 App 元件
-// ==========================================
-export default function App() {
-  const [activeTab, setActiveTab] = useState('input');
-  const [expenses, setExpenses] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [lastUpdated, setLastUpdated] = useState(null);
-
-  const fetchExpenses = async () => {
-    setLoading(true);
-    try {
-      const url = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRfdXmG5deMAoGDbfQbftAZiXCIHhDlRbqlkqBcRAGZ8lVSP6YD5UuWKN5sCppAQqE16wEy-AaCvQmA/pub?gid=107014608&single=true&output=csv&cachebust=${Date.now()}`;
-      const response = await fetch(url);
-      const csvText = await response.text();
-      const data = parseCSV(csvText);
-      setExpenses(data);
-      setLastUpdated(new Date().toLocaleTimeString());
-    } catch (error) {
-      setErrorMsg("讀取失敗，請確認網路連線或發佈網址。");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchExpenses(); }, []);
-
-  return (
-    <div className="min-h-screen flex flex-col md:flex-row font-sans" style={{ backgroundColor: theme.bg, color: theme.textDark }}>
-      {/* 側邊導覽 */}
-      <nav className="md:w-64 md:h-screen shadow-xl flex-shrink-0 flex flex-col z-10 sticky top-0" style={{ backgroundColor: theme.primary }}>
-        <div className="p-8 text-center md:text-left">
-          <h1 className="text-2xl font-black tracking-tighter" style={{ color: theme.textDark }}>精緻記帳</h1>
-          <div className="h-1 w-12 bg-white/40 mt-2 rounded-full hidden md:block" />
-        </div>
-        
-        <div className="hidden md:flex flex-col flex-1 px-4 gap-3 mt-4">
-          <NavButton icon={<PenSquare size={20} />} label="記帳表單" isActive={activeTab === 'input'} onClick={() => setActiveTab('input')} />
-          <NavButton icon={<LayoutDashboard size={20} />} label="消費總覽" isActive={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
-          <NavButton icon={<Wallet size={20} />} label="預算追蹤" isActive={activeTab === 'budget'} onClick={() => setActiveTab('budget')} />
-          <NavButton icon={<Calculator size={20} />} label="財務結算" isActive={activeTab === 'settle'} onClick={() => setActiveTab('settle')} />
-          
-          <div className="mt-auto mb-8 px-4 py-3 bg-white/20 rounded-2xl">
-            <button onClick={fetchExpenses} className="flex items-center gap-2 text-xs font-bold w-full">
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-              {loading ? '同步中...' : `同步於 ${lastUpdated || '--:--'}`}
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      {/* 內容區 */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-6xl mx-auto p-4 md:p-10 pb-24 md:pb-10">
-          {errorMsg && <div className="bg-red-100 text-red-700 p-4 rounded-xl mb-6 flex items-center gap-2"><AlertCircle size={18}/>{errorMsg}</div>}
-          
-          {activeTab === 'input' && <InputPage />}
-          {activeTab === 'overview' && (loading ? <LoadingOverlay /> : <OverviewPage expenses={expenses} />)}
-          {activeTab === 'budget' && (loading ? <LoadingOverlay /> : <BudgetPage expenses={expenses} />)}
-          {activeTab === 'settle' && (loading ? <LoadingOverlay /> : <SettlePage expenses={expenses} />)}
-        </div>
-      </main>
-
-      {/* 行動版底部導覽 */}
-      <nav className="md:hidden fixed bottom-4 left-4 right-4 h-16 shadow-2xl rounded-2xl flex justify-around items-center z-20 overflow-hidden" style={{ backgroundColor: theme.primary }}>
-        <MobileNavButton icon={<PenSquare size={22} />} isActive={activeTab === 'input'} onClick={() => setActiveTab('input')} />
-        <MobileNavButton icon={<LayoutDashboard size={22} />} isActive={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
-        <MobileNavButton icon={<Wallet size={22} />} isActive={activeTab === 'budget'} onClick={() => setActiveTab('budget')} />
-        <MobileNavButton icon={<Calculator size={22} />} isActive={activeTab === 'settle'} onClick={() => setActiveTab('settle')} />
-      </nav>
-    </div>
-  );
-}
-
 // --- 小型組件 ---
-const LoadingOverlay = () => <div className="h-64 flex flex-col items-center justify-center gap-4 text-gray-400 font-bold"><RefreshCw className="animate-spin" size={40} />數據載入中...</div>;
+const LoadingOverlay = () => (
+  <div className="h-64 flex flex-col items-center justify-center gap-4 text-gray-400 font-bold">
+    <RefreshCw className="animate-spin" size={40} />
+    數據載入中...
+  </div>
+);
 
 const NavButton = ({ icon, label, isActive, onClick }) => (
   <button onClick={onClick} className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold ${isActive ? 'bg-white shadow-md scale-[1.02]' : 'hover:bg-white/30 opacity-70'}`}>
@@ -181,33 +109,35 @@ const PageHeader = ({ title, subtitle, children }) => (
   </header>
 );
 
-// ==========================================
-// 頁面：記帳表單
-// ==========================================
+// --- 頁面：記帳表單 ---
 const InputPage = () => (
   <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
     <PageHeader title="新增記錄" subtitle="填寫表單將資料同步至雲端試算表" />
     <div className="h-[70vh] md:h-[75vh] bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
-      <iframe src="https://docs.google.com/forms/d/e/1FAIpQLSdbf0oKCC-6izeCIKaGhKjOc_vGHe-EnCLWr4iiCJbeTmaHfA/viewform?embedded=true" className="w-full h-full border-0">載入中…</iframe>
+      <iframe 
+        src="https://docs.google.com/forms/d/e/1FAIpQLSdbf0oKCC-6izeCIKaGhKjOc_vGHe-EnCLWr4iiCJbeTmaHfA/viewform?embedded=true" 
+        className="w-full h-full border-0"
+        title="Google Form"
+      >
+        載入中…
+      </iframe>
     </div>
   </div>
 );
 
-// ==========================================
-// 頁面：消費總覽
-// ==========================================
+// --- 頁面：消費總覽 ---
 const OverviewPage = ({ expenses }) => {
   const [viewType, setViewType] = useState('month');
-  const [chartMode, setChartMode] = useState('pie'); // 'pie' or 'bar'
   const expenseOnly = useMemo(() => expenses.filter(exp => exp.category !== '收入'), [expenses]);
+  
   const monthOptions = useMemo(() => Array.from(new Set(expenseOnly.map(e => e.month))).sort().reverse(), [expenseOnly]);
-  const yearOptions = useMemo(() => Array.from(new Set(expenseOnly.map(e => e.month.split('-')[0]))).sort().reverse(), [expenseOnly]);
+  const yearOptions = useMemo(() => Array.from(new Set(expenseOnly.map(e => e.year))).sort().reverse(), [expenseOnly]);
   
   const options = viewType === 'month' ? monthOptions : yearOptions;
   const [selectedPeriod, setSelectedPeriod] = useState(options[0] || '');
 
   const chartData = useMemo(() => {
-    const filtered = expenseOnly.filter(exp => (viewType === 'month' ? exp.month : exp.month.startsWith(selectedPeriod)) === selectedPeriod);
+    const filtered = expenseOnly.filter(exp => (viewType === 'month' ? exp.month : exp.year) === selectedPeriod);
     const aggregated = filtered.reduce((acc, curr) => {
       acc[curr.category] = (acc[curr.category] || 0) + curr.amount;
       return acc;
@@ -221,4 +151,218 @@ const OverviewPage = ({ expenses }) => {
   const total = chartData.reduce((sum, item) => sum + item.value, 0);
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 durat
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <PageHeader title="消費統計" subtitle="查看各類別的支出佔比">
+        <select 
+          className="bg-white px-4 py-2 rounded-xl shadow-sm border-0 font-bold outline-none cursor-pointer"
+          value={viewType}
+          onChange={(e) => { setViewType(e.target.value); setSelectedPeriod(e.target.value === 'month' ? monthOptions[0] : yearOptions[0]); }}
+        >
+          <option value="month">按月查看</option>
+          <option value="year">按年查看</option>
+        </select>
+        <select 
+          className="bg-white px-4 py-2 rounded-xl shadow-sm border-0 font-bold outline-none cursor-pointer"
+          value={selectedPeriod}
+          onChange={(e) => setSelectedPeriod(e.target.value)}
+        >
+          {options.length > 0 ? options.map(opt => <option key={opt} value={opt}>{opt}</option>) : <option>尚無數據</option>}
+        </select>
+      </PageHeader>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 bg-white p-8 rounded-3xl shadow-sm border border-gray-100 min-h-[450px]">
+          <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+            <TrendingUp size={20} className="text-pink-400" /> 類別分佈
+          </h3>
+          <div className="h-[350px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={chartData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={80}
+                  outerRadius={120}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={theme.chartColors[index % theme.chartColors.length]} />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
+                  formatter={(value) => `$${value.toLocaleString()}`}
+                />
+                <Legend verticalAlign="bottom" height={36}/>
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+            <p className="text-gray-400 font-bold mb-1">本期總支出</p>
+            <p className="text-4xl font-black" style={{ color: theme.textDark }}>${total.toLocaleString()}</p>
+          </div>
+          
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+            <h4 className="font-bold mb-4 text-gray-500 uppercase text-xs tracking-widest">前五大支出</h4>
+            <div className="space-y-4">
+              {chartData.sort((a,b) => b.value - a.value).slice(0, 5).map((item, i) => (
+                <div key={item.name} className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: theme.chartColors[i % theme.chartColors.length] }} />
+                    <span className="font-bold text-gray-600">{item.name}</span>
+                  </div>
+                  <span className="font-mono font-bold">${item.value.toLocaleString()}</span>
+                </div>
+              ))}
+              {chartData.length === 0 && <p className="text-gray-300 text-center py-4">無資料</p>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- 頁面：財務結算 ---
+const SettlePage = ({ expenses }) => {
+  const summary = useMemo(() => {
+    const income = expenses.filter(e => e.category === '收入').reduce((s, c) => s + c.amount, 0);
+    const cost = expenses.filter(e => e.category !== '收入').reduce((s, c) => s + c.amount, 0);
+    return { income, cost, balance: income - cost };
+  }, [expenses]);
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <PageHeader title="財務結算" subtitle="檢視收支平衡與儲蓄狀況" />
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <div className="bg-emerald-50 p-8 rounded-3xl border border-emerald-100">
+          <ArrowUpCircle className="text-emerald-500 mb-4" size={32} />
+          <p className="text-emerald-600 font-bold">總計收入</p>
+          <p className="text-3xl font-black text-emerald-700">${summary.income.toLocaleString()}</p>
+        </div>
+        <div className="bg-rose-50 p-8 rounded-3xl border border-rose-100">
+          <ArrowDownCircle className="text-rose-500 mb-4" size={32} />
+          <p className="text-rose-600 font-bold">總計支出</p>
+          <p className="text-3xl font-black text-rose-700">${summary.cost.toLocaleString()}</p>
+        </div>
+        <div className="bg-blue-50 p-8 rounded-3xl border border-blue-100">
+          <Target className="text-blue-500 mb-4" size={32} />
+          <p className="text-blue-600 font-bold">目前餘額</p>
+          <p className="text-3xl font-black text-blue-700">${summary.balance.toLocaleString()}</p>
+        </div>
+      </div>
+
+      <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+        <h3 className="text-xl font-bold mb-6 flex items-center gap-2">收支結構比</h3>
+        <div className="h-[350px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={[
+              { name: '收入', 總額: summary.income },
+              { name: '支出', 總額: summary.cost }
+            ]} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+              <XAxis dataKey="name" axisLine={false} tickLine={false} />
+              <YAxis axisLine={false} tickLine={false} />
+              <Tooltip cursor={{fill: '#f8fafc'}} />
+              <Bar dataKey="總額" radius={[10, 10, 0, 0]} barSize={80}>
+                <Cell fill={theme.success} />
+                <Cell fill={theme.danger} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
+// 主要 App 元件
+// ==========================================
+export default function App() {
+  const [activeTab, setActiveTab] = useState('input');
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  const fetchExpenses = async () => {
+    setLoading(true);
+    try {
+      // 替換為你的 Google Sheets 發佈網址
+      const url = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRfdXmG5deMAoGDbfQbftAZiXCIHhDlRbqlkqBcRAGZ8lVSP6YD5UuWKN5sCppAQqE16wEy-AaCvQmA/pub?gid=107014608&single=true&output=csv&cachebust=${Date.now()}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Network Error");
+      const csvText = await response.text();
+      const data = parseCSV(csvText);
+      setExpenses(data);
+      setLastUpdated(new Date().toLocaleTimeString());
+      setErrorMsg("");
+    } catch (error) {
+      console.error(error);
+      setErrorMsg("讀取失敗，請確認試算表已發佈為 CSV 或檢查網址。");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchExpenses();
+  }, []);
+
+  return (
+    <div className="min-h-screen flex flex-col md:flex-row font-sans selection:bg-pink-100" style={{ backgroundColor: theme.bg, color: theme.textDark }}>
+      {/* 側邊導覽 (Desktop) */}
+      <nav className="hidden md:flex md:w-64 md:h-screen shadow-xl flex-shrink-0 flex-col z-10 sticky top-0" style={{ backgroundColor: theme.primary }}>
+        <div className="p-8">
+          <h1 className="text-2xl font-black tracking-tighter" style={{ color: theme.textDark }}>精緻記帳</h1>
+          <div className="h-1 w-12 bg-white/40 mt-2 rounded-full" />
+        </div>
+        
+        <div className="flex flex-col flex-1 px-4 gap-3 mt-4">
+          <NavButton icon={<PenSquare size={20} />} label="記帳表單" isActive={activeTab === 'input'} onClick={() => setActiveTab('input')} />
+          <NavButton icon={<LayoutDashboard size={20} />} label="消費總覽" isActive={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
+          <NavButton icon={<Calculator size={20} />} label="財務結算" isActive={activeTab === 'settle'} onClick={() => setActiveTab('settle')} />
+          
+          <div className="mt-auto mb-8 px-4 py-3 bg-white/20 rounded-2xl">
+            <button onClick={fetchExpenses} className="flex items-center gap-2 text-xs font-bold w-full text-gray-700 hover:text-black transition-colors">
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              {loading ? '同步中...' : `同步於 ${lastUpdated || '--:--'}`}
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* 內容區 */}
+      <main className="flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="max-w-6xl mx-auto p-4 md:p-10 pb-24 md:pb-10">
+          {errorMsg && (
+            <div className="bg-rose-50 text-rose-700 p-4 rounded-2xl mb-6 border border-rose-100 flex items-center gap-2 animate-bounce">
+              <AlertCircle size={18}/>{errorMsg}
+            </div>
+          )}
+          
+          {activeTab === 'input' && <InputPage />}
+          {activeTab === 'overview' && (loading ? <LoadingOverlay /> : <OverviewPage expenses={expenses} />)}
+          {activeTab === 'settle' && (loading ? <LoadingOverlay /> : <SettlePage expenses={expenses} />)}
+        </div>
+      </main>
+
+      {/* 行動版底部導覽 (Mobile) */}
+      <nav className="md:hidden fixed bottom-4 left-4 right-4 h-16 shadow-2xl rounded-2xl flex justify-around items-center z-20 overflow-hidden" style={{ backgroundColor: theme.primary }}>
+        <MobileNavButton icon={<PenSquare size={22} />} isActive={activeTab === 'input'} onClick={() => setActiveTab('input')} />
+        <MobileNavButton icon={<LayoutDashboard size={22} />} isActive={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
+        <MobileNavButton icon={<Calculator size={22} />} isActive={activeTab === 'settle'} onClick={() => setActiveTab('settle')} />
+        <button onClick={fetchExpenses} className="p-3 opacity-60 active:scale-90 transition-transform">
+          <RefreshCw size={22} className={loading ? 'animate-spin' : ''}/>
+        </button>
+      </nav>
+    </div>
+  );
+}
