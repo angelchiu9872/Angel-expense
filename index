@@ -1,0 +1,474 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { PieChart, Pie, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
+import { 
+  PenSquare, 
+  PieChart as ChartIcon, 
+  Wallet, 
+  Calendar, 
+  TrendingUp, 
+  RefreshCw, 
+  AlertCircle, 
+  CheckCircle2, 
+  Circle,
+  Calculator,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  LayoutDashboard,
+  BarChart3,
+  PieChart as PieIcon
+} from 'lucide-react';
+
+// --- 色彩與配置 ---
+const theme = {
+  bg: '#FDF8F9',
+  primary: '#E8D3D1',
+  secondary: '#D8C6BC',
+  accent: '#B5998E',
+  textDark: '#4A3F39',
+  textLight: '#8A7A72',
+  chartColors: ['#E8D3D1', '#D8C6BC', '#C4A49D', '#B5998E', '#9B7E76', '#8E736B', '#D98A8A', '#A3B18A', '#7F5539', '#B7B7A4', '#6B705C', '#CB997E'],
+  success: '#A3B18A',
+  danger: '#D98A8A'
+};
+
+// 指定的固定排序
+const CATEGORY_ORDER = ['食物', '衣物', '娛樂', '交通', '教育', '孝親', '股票', '儲蓄', '保養', '醫療', '國家', '收入', '其他'];
+
+// --- CSV 解析工具 ---
+const parseCSV = (csvText) => {
+  const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== "");
+  if (lines.length < 2) return [];
+
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const dateIdx = headers.findIndex(h => h.includes('時間戳記'));
+  const amountIdx = headers.findIndex(h => h.includes('費用'));
+  const categoryIdx = headers.findIndex(h => h.includes('類別'));
+
+  const safeDateIdx = dateIdx !== -1 ? dateIdx : 0;
+  const safeAmountIdx = amountIdx !== -1 ? amountIdx : 1;
+  const safeCatIdx = categoryIdx !== -1 ? categoryIdx : 2;
+
+  const parsedData = [];
+  for (let i = 1; i < lines.length; i++) {
+    const row = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(item => item.replace(/^"|"$/g, '').trim());
+    if (row.length > Math.max(safeDateIdx, safeAmountIdx, safeCatIdx)) {
+      const rawDate = row[safeDateIdx];
+      const amountStr = row[safeAmountIdx] || "0";
+      const category = row[safeCatIdx] || '其他';
+      const amount = parseFloat(amountStr.replace(/[^0-9.-]+/g, '')) || 0;
+
+      let dateObj = new Date(rawDate);
+      if (isNaN(dateObj.getTime()) && rawDate.includes('/')) {
+        const parts = rawDate.split(' ')[0].split('/');
+        if (parts.length === 3) {
+          dateObj = parts[0].length === 4 ? new Date(parts[0], parts[1] - 1, parts[2]) : new Date(parts[2], parts[0] - 1, parts[1]);
+        }
+      }
+
+      if (!isNaN(dateObj.getTime())) {
+        parsedData.push({
+          id: i,
+          date: dateObj.toISOString().split('T')[0],
+          month: `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`,
+          category: category,
+          amount: Math.abs(amount) 
+        });
+      }
+    }
+  }
+  return parsedData;
+};
+
+// ==========================================
+// 主要 App 元件
+// ==========================================
+export default function App() {
+  const [activeTab, setActiveTab] = useState('input');
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  const fetchExpenses = async () => {
+    setLoading(true);
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRfdXmG5deMAoGDbfQbftAZiXCIHhDlRbqlkqBcRAGZ8lVSP6YD5UuWKN5sCppAQqE16wEy-AaCvQmA/pub?gid=107014608&single=true&output=csv&cachebust=${Date.now()}`;
+      const response = await fetch(url);
+      const csvText = await response.text();
+      const data = parseCSV(csvText);
+      setExpenses(data);
+      setLastUpdated(new Date().toLocaleTimeString());
+    } catch (error) {
+      setErrorMsg("讀取失敗，請確認網路連線或發佈網址。");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchExpenses(); }, []);
+
+  return (
+    <div className="min-h-screen flex flex-col md:flex-row font-sans" style={{ backgroundColor: theme.bg, color: theme.textDark }}>
+      {/* 側邊導覽 */}
+      <nav className="md:w-64 md:h-screen shadow-xl flex-shrink-0 flex flex-col z-10 sticky top-0" style={{ backgroundColor: theme.primary }}>
+        <div className="p-8 text-center md:text-left">
+          <h1 className="text-2xl font-black tracking-tighter" style={{ color: theme.textDark }}>精緻記帳</h1>
+          <div className="h-1 w-12 bg-white/40 mt-2 rounded-full hidden md:block" />
+        </div>
+        
+        <div className="hidden md:flex flex-col flex-1 px-4 gap-3 mt-4">
+          <NavButton icon={<PenSquare size={20} />} label="記帳表單" isActive={activeTab === 'input'} onClick={() => setActiveTab('input')} />
+          <NavButton icon={<LayoutDashboard size={20} />} label="消費總覽" isActive={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
+          <NavButton icon={<Wallet size={20} />} label="預算追蹤" isActive={activeTab === 'budget'} onClick={() => setActiveTab('budget')} />
+          <NavButton icon={<Calculator size={20} />} label="財務結算" isActive={activeTab === 'settle'} onClick={() => setActiveTab('settle')} />
+          
+          <div className="mt-auto mb-8 px-4 py-3 bg-white/20 rounded-2xl">
+            <button onClick={fetchExpenses} className="flex items-center gap-2 text-xs font-bold w-full">
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              {loading ? '同步中...' : `同步於 ${lastUpdated || '--:--'}`}
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* 內容區 */}
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-6xl mx-auto p-4 md:p-10 pb-24 md:pb-10">
+          {errorMsg && <div className="bg-red-100 text-red-700 p-4 rounded-xl mb-6 flex items-center gap-2"><AlertCircle size={18}/>{errorMsg}</div>}
+          
+          {activeTab === 'input' && <InputPage />}
+          {activeTab === 'overview' && (loading ? <LoadingOverlay /> : <OverviewPage expenses={expenses} />)}
+          {activeTab === 'budget' && (loading ? <LoadingOverlay /> : <BudgetPage expenses={expenses} />)}
+          {activeTab === 'settle' && (loading ? <LoadingOverlay /> : <SettlePage expenses={expenses} />)}
+        </div>
+      </main>
+
+      {/* 行動版底部導覽 */}
+      <nav className="md:hidden fixed bottom-4 left-4 right-4 h-16 shadow-2xl rounded-2xl flex justify-around items-center z-20 overflow-hidden" style={{ backgroundColor: theme.primary }}>
+        <MobileNavButton icon={<PenSquare size={22} />} isActive={activeTab === 'input'} onClick={() => setActiveTab('input')} />
+        <MobileNavButton icon={<LayoutDashboard size={22} />} isActive={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
+        <MobileNavButton icon={<Wallet size={22} />} isActive={activeTab === 'budget'} onClick={() => setActiveTab('budget')} />
+        <MobileNavButton icon={<Calculator size={22} />} isActive={activeTab === 'settle'} onClick={() => setActiveTab('settle')} />
+      </nav>
+    </div>
+  );
+}
+
+// --- 小型組件 ---
+const LoadingOverlay = () => <div className="h-64 flex flex-col items-center justify-center gap-4 text-gray-400 font-bold"><RefreshCw className="animate-spin" size={40} />數據載入中...</div>;
+
+const NavButton = ({ icon, label, isActive, onClick }) => (
+  <button onClick={onClick} className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold ${isActive ? 'bg-white shadow-md scale-[1.02]' : 'hover:bg-white/30 opacity-70'}`}>
+    {icon} <span>{label}</span>
+  </button>
+);
+
+const MobileNavButton = ({ icon, isActive, onClick }) => (
+  <button onClick={onClick} className={`p-3 rounded-xl transition-all ${isActive ? 'bg-white shadow-sm scale-110' : 'opacity-60'}`}>
+    {icon}
+  </button>
+);
+
+const PageHeader = ({ title, subtitle, children }) => (
+  <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+    <div>
+      <h2 className="text-4xl font-black mb-2 tracking-tight">{title}</h2>
+      <p className="text-gray-400 font-medium text-lg">{subtitle}</p>
+    </div>
+    <div className="flex flex-wrap gap-3">
+      {children}
+    </div>
+  </header>
+);
+
+// ==========================================
+// 頁面：記帳表單
+// ==========================================
+const InputPage = () => (
+  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+    <PageHeader title="新增記錄" subtitle="填寫表單將資料同步至雲端試算表" />
+    <div className="h-[70vh] md:h-[75vh] bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
+      <iframe src="https://docs.google.com/forms/d/e/1FAIpQLSdbf0oKCC-6izeCIKaGhKjOc_vGHe-EnCLWr4iiCJbeTmaHfA/viewform?embedded=true" className="w-full h-full border-0">載入中…</iframe>
+    </div>
+  </div>
+);
+
+// ==========================================
+// 頁面：消費總覽
+// ==========================================
+const OverviewPage = ({ expenses }) => {
+  const [viewType, setViewType] = useState('month');
+  const [chartMode, setChartMode] = useState('pie'); // 'pie' or 'bar'
+  const expenseOnly = useMemo(() => expenses.filter(exp => exp.category !== '收入'), [expenses]);
+  const monthOptions = useMemo(() => Array.from(new Set(expenseOnly.map(e => e.month))).sort().reverse(), [expenseOnly]);
+  const yearOptions = useMemo(() => Array.from(new Set(expenseOnly.map(e => e.month.split('-')[0]))).sort().reverse(), [expenseOnly]);
+  
+  const options = viewType === 'month' ? monthOptions : yearOptions;
+  const [selectedPeriod, setSelectedPeriod] = useState(options[0] || '');
+
+  const chartData = useMemo(() => {
+    const filtered = expenseOnly.filter(exp => (viewType === 'month' ? exp.month : exp.month.startsWith(selectedPeriod)) === selectedPeriod);
+    const aggregated = filtered.reduce((acc, curr) => {
+      acc[curr.category] = (acc[curr.category] || 0) + curr.amount;
+      return acc;
+    }, {});
+    
+    return CATEGORY_ORDER
+      .filter(cat => cat !== '收入' && aggregated[cat])
+      .map(name => ({ name, value: aggregated[name] }));
+  }, [expenseOnly, selectedPeriod, viewType]);
+
+  const total = chartData.reduce((sum, item) => sum + item.value, 0);
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <PageHeader title="消費總覽" subtitle="透過圖表分析您的開支結構">
+        <div className="flex bg-white p-1 rounded-xl shadow-sm border border-gray-100">
+          <button onClick={() => setChartMode('pie')} className={`p-2 rounded-lg transition-all ${chartMode === 'pie' ? 'bg-[#E8D3D1] text-gray-800' : 'text-gray-400 hover:bg-gray-50'}`}><PieIcon size={18}/></button>
+          <button onClick={() => setChartMode('bar')} className={`p-2 rounded-lg transition-all ${chartMode === 'bar' ? 'bg-[#E8D3D1] text-gray-800' : 'text-gray-400 hover:bg-gray-50'}`}><BarChart3 size={18}/></button>
+        </div>
+        <div className="flex bg-white p-1 rounded-xl shadow-sm border border-gray-100">
+          <button onClick={() => setViewType('month')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${viewType === 'month' ? 'bg-[#E8D3D1]' : 'text-gray-400'}`}>按月</button>
+          <button onClick={() => setViewType('year')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${viewType === 'year' ? 'bg-[#E8D3D1]' : 'text-gray-400'}`}>按年</button>
+        </div>
+        <select value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)} className="bg-white px-4 py-2 rounded-xl shadow-sm border font-bold text-sm outline-none">
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </PageHeader>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col items-center justify-center">
+          <div className="w-20 h-20 bg-[#FDF0F0] rounded-3xl flex items-center justify-center text-[#D98A8A] mb-4 shadow-inner">
+            <TrendingUp size={36} />
+          </div>
+          <span className="text-sm text-gray-400 font-bold mb-1 uppercase tracking-widest">期間支出淨額</span>
+          <span className="text-5xl font-black">${total.toLocaleString()}</span>
+        </div>
+
+        <div className="lg:col-span-2 bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 h-[450px]">
+          {chartData.length > 0 ? (
+            <ResponsiveContainer>
+              {chartMode === 'pie' ? (
+                <PieChart>
+                  <Pie data={chartData} cx="50%" cy="50%" innerRadius={90} outerRadius={140} paddingAngle={5} dataKey="value" label={({name, percent}) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                    {chartData.map((e, i) => <Cell key={i} fill={theme.chartColors[CATEGORY_ORDER.indexOf(e.name) % theme.chartColors.length]} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              ) : (
+                <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 50 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F0F0" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fontWeight: 'bold'}} interval={0} angle={-45} textAnchor="end" />
+                  <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12}} />
+                  <Tooltip cursor={{fill: '#F9F9F9'}} />
+                  <Bar dataKey="value" radius={[8, 8, 0, 0]} barSize={35}>
+                    {chartData.map((e, i) => <Cell key={i} fill={theme.chartColors[CATEGORY_ORDER.indexOf(e.name) % theme.chartColors.length]} />)}
+                  </Bar>
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+          ) : <div className="h-full flex items-center justify-center text-gray-300 italic">目前無資料</div>}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
+// 頁面：預算追蹤
+// ==========================================
+const BudgetPage = ({ expenses }) => {
+  const monthOptions = useMemo(() => Array.from(new Set(expenses.map(e => e.month))).sort().reverse(), [expenses]);
+  const [selectedMonth, setSelectedMonth] = useState('');
+  useEffect(() => { if (monthOptions.length > 0 && !selectedMonth) setSelectedMonth(monthOptions[0]); }, [monthOptions]);
+
+  // 預算設定（持久化模擬，實務上可存於 LocalStorage 或 Firebase）
+  const [budgetGoals, setBudgetGoals] = useState(() => {
+    const saved = localStorage.getItem('budget_goals');
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  const updateGoal = (cat, val) => {
+    const newGoals = { ...budgetGoals, [cat]: val };
+    setBudgetGoals(newGoals);
+    localStorage.setItem('budget_goals', JSON.stringify(newGoals));
+  };
+
+  const stats = useMemo(() => {
+    const periodData = expenses.filter(e => e.month === selectedMonth);
+    const income = periodData.filter(e => e.category === '收入').reduce((s, e) => s + e.amount, 0);
+    const expMap = periodData.filter(e => e.category !== '收入').reduce((acc, curr) => {
+      acc[curr.category] = (acc[curr.category] || 0) + curr.amount;
+      return acc;
+    }, {});
+    return { income, expMap };
+  }, [expenses, selectedMonth]);
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <PageHeader title="預算進度" subtitle="設定目標並追蹤各項支出的達成率">
+        <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="bg-white px-4 py-2 rounded-xl shadow-sm border font-bold text-sm outline-none">
+          {monthOptions.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </PageHeader>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="space-y-6">
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
+            <h3 className="text-lg font-black mb-6 flex items-center gap-2">支出分類明細</h3>
+            <div className="space-y-8">
+              {CATEGORY_ORDER.filter(c => c !== '收入').map((cat) => {
+                const amount = stats.expMap[cat] || 0;
+                const goal = budgetGoals[cat] || 0;
+                const percent = goal > 0 ? (amount / goal) * 100 : 0;
+                const isOver = percent > 100;
+
+                return (
+                  <div key={cat} className="group">
+                    <div className="flex justify-between items-end mb-2">
+                      <div>
+                        <span className="font-bold text-gray-700">{cat}</span>
+                        {goal > 0 && <span className={`ml-2 text-xs font-bold ${isOver ? 'text-red-500' : 'text-gray-400'}`}>{percent.toFixed(0)}%</span>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-sm text-gray-800">${amount.toLocaleString()}</span>
+                        <span className="text-gray-300 text-xs">/</span>
+                        <div className="flex items-center gap-1 border-b border-dashed border-gray-200 focus-within:border-solid focus-within:border-gray-400 transition-all">
+                          <span className="text-[10px] text-gray-400 font-bold">$</span>
+                          <input 
+                            type="number" 
+                            placeholder="目標"
+                            value={goal || ''} 
+                            onChange={e => updateGoal(cat, parseFloat(e.target.value) || 0)}
+                            className="w-16 text-right text-xs font-bold bg-transparent outline-none py-0.5"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="w-full h-3 bg-gray-50 rounded-full overflow-hidden shadow-inner">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-1000 ${isOver ? 'bg-[#D98A8A]' : 'bg-[#D8C6BC]'}`} 
+                        style={{ width: `${Math.min(percent || (amount > 0 ? 5 : 0), 100)}%` }} 
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="bg-[#A3B18A]/10 p-10 rounded-[2.5rem] border border-[#A3B18A]/20 flex items-center justify-between shadow-sm">
+            <div>
+              <p className="text-xs font-bold text-[#A3B18A] uppercase tracking-widest mb-1">該月收入總額</p>
+              <p className="text-4xl font-black text-[#588157]">${stats.income.toLocaleString()}</p>
+            </div>
+            <ArrowUpCircle size={48} className="text-[#A3B18A]" />
+          </div>
+          <div className="bg-[#D98A8A]/10 p-10 rounded-[2.5rem] border border-[#D98A8A]/20 flex items-center justify-between shadow-sm">
+            <div>
+              <p className="text-xs font-bold text-[#D98A8A] uppercase tracking-widest mb-1">該月累計支出</p>
+              <p className="text-4xl font-black text-[#A44A4A]">${Object.values(stats.expMap).reduce((a,b)=>a+b, 0).toLocaleString()}</p>
+            </div>
+            <ArrowDownCircle size={48} className="text-[#D98A8A]" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
+// 頁面：財務結算
+// ==========================================
+const SettlePage = ({ expenses }) => {
+  const monthOptions = useMemo(() => Array.from(new Set(expenses.map(e => e.month))).sort().reverse(), [expenses]);
+  const [selectedMonth, setSelectedMonth] = useState('');
+  useEffect(() => { if (monthOptions.length > 0 && !selectedMonth) setSelectedMonth(monthOptions[0]); }, [monthOptions]);
+
+  const [excluded, setExcluded] = useState(['儲蓄', '股票']); 
+
+  const stats = useMemo(() => {
+    const periodData = expenses.filter(e => e.month === selectedMonth);
+    const income = periodData.filter(e => e.category === '收入').reduce((s, e) => s + e.amount, 0);
+    const expMap = periodData.filter(e => e.category !== '收入').reduce((acc, curr) => {
+      acc[curr.category] = (acc[curr.category] || 0) + curr.amount;
+      return acc;
+    }, {});
+    return { income, expMap };
+  }, [expenses, selectedMonth]);
+
+  const toggleExclude = (cat) => {
+    setExcluded(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]);
+  };
+
+  const netExpense = useMemo(() => {
+    return Object.entries(stats.expMap)
+      .filter(([cat]) => !excluded.includes(cat))
+      .reduce((sum, [_, val]) => sum + val, 0);
+  }, [stats.expMap, excluded]);
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <PageHeader title="財務結算" subtitle="手動過濾特定項目，計算真實生活結餘">
+        <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="bg-white px-4 py-2 rounded-xl shadow-sm border font-bold text-sm outline-none">
+          {monthOptions.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </PageHeader>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
+          <h3 className="font-black text-lg mb-6 border-b pb-4">排除支出項目 (點擊切換)</h3>
+          <div className="space-y-3">
+            {CATEGORY_ORDER.filter(c => c !== '收入').map(cat => {
+              const isExcluded = excluded.includes(cat);
+              const amount = stats.expMap[cat] || 0;
+              return (
+                <div 
+                  key={cat} 
+                  onClick={() => toggleExclude(cat)}
+                  className={`flex items-center justify-between p-4 rounded-2xl cursor-pointer transition-all border ${isExcluded ? 'opacity-40 border-transparent bg-gray-50' : 'bg-white border-gray-100 shadow-sm'}`}
+                >
+                  <div className="flex items-center gap-4">
+                    {isExcluded ? <Circle size={20} className="text-gray-300" /> : <CheckCircle2 size={20} className="text-[#A3B18A]" />}
+                    <span className={`font-bold ${isExcluded ? 'line-through text-gray-400' : 'text-gray-700'}`}>{cat}</span>
+                  </div>
+                  <span className="font-black text-sm">${amount.toLocaleString()}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-6">
+          <div className="bg-white p-10 rounded-[3rem] shadow-xl border border-gray-100 text-center relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 opacity-5">
+              <Calculator size={120} />
+            </div>
+            
+            <div className="mb-8">
+              <p className="text-gray-400 font-bold mb-2">本月總收入</p>
+              <h4 className="text-4xl font-black text-[#588157]">${stats.income.toLocaleString()}</h4>
+            </div>
+            <div className="w-12 h-1 bg-gray-100 mx-auto mb-8 rounded-full" />
+            <div className="mb-10">
+              <p className="text-gray-400 font-bold mb-2">計算後支出 (已排除 {excluded.length} 項)</p>
+              <h4 className="text-4xl font-black text-gray-800">${netExpense.toLocaleString()}</h4>
+            </div>
+            <div className="bg-[#E8D3D1] p-10 rounded-[2.5rem] shadow-inner">
+              <p className="text-[#5A4A42] font-black uppercase tracking-tighter mb-2">最終淨結餘</p>
+              <h4 className="text-6xl font-black text-[#4A3F39]">${(stats.income - netExpense).toLocaleString()}</h4>
+            </div>
+          </div>
+          <div className="p-6 bg-blue-50/50 rounded-3xl border border-blue-100">
+            <p className="text-blue-800 text-xs font-bold leading-relaxed flex items-start gap-3">
+              <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+              此計算已從總支出中扣除您勾選的項目，通常用於排除「儲蓄投資」或「大額非經常性開銷」。
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
