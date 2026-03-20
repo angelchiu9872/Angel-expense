@@ -3,194 +3,547 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>個人記帳本 - Web App</title>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <title>我的記帳筆記</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PapaParse -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    
     <style>
-        body { background-color: #FCF5F7; }
-        /* 隱藏捲軸但保留功能 */
-        ::-webkit-scrollbar { width: 0px; background: transparent; }
+        :root {
+            --color-bg: #FCF5F7;
+            --color-primary: #E8D3D1;
+            --color-secondary: #D8C6BC;
+            --color-accent: #A68D85;
+            --color-text: #4A4444;
+        }
+
+        body {
+            background-color: var(--color-bg);
+            color: var(--color-text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding-bottom: 80px;
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .glass-nav {
+            background: rgba(252, 245, 247, 0.95);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid var(--color-secondary);
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            margin-bottom: 1.5rem;
+            padding: 1.25rem;
+        }
+
+        .iframe-container {
+            position: relative;
+            width: 100%;
+            height: calc(100vh - 180px);
+            overflow: hidden;
+            border-radius: 12px;
+        }
+
+        .iframe-container iframe {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            border: none;
+        }
+
+        .btn-active {
+            background-color: var(--color-secondary) !important;
+            color: white !important;
+        }
+
+        .refresh-btn { animation: rotate 1s linear infinite; animation-play-state: paused; }
+        .refresh-btn.loading { animation-play-state: running; }
+        @keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: var(--color-secondary); border-radius: 10px; }
     </style>
 </head>
 <body>
-    <div id="root"></div>
 
-    <script type="text/babel">
-        // 從全域變數中取出需要的 React 與 Recharts 組件
-        const { useState, useEffect, useMemo } = React;
-        const { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
+    <!-- Header -->
+    <header class="p-4 sticky top-0 z-30 bg-[#FCF5F7]">
+        <div class="flex justify-between items-center mb-2">
+            <h1 id="page-title" class="text-xl font-bold text-[#A68D85]">記帳頁面</h1>
+            <div class="flex items-center gap-2">
+                <button onclick="showDebug()" class="p-2 bg-gray-200 text-gray-600 rounded-lg flex items-center gap-1">
+                    <i data-lucide="stethoscope" class="w-4 h-4"></i>
+                    <span class="text-[10px] font-bold">診斷</span>
+                </button>
+                <button onclick="fetchData()" class="p-2 text-[#A68D85] flex items-center gap-1">
+                    <i id="refresh-icon" data-lucide="refresh-cw" class="w-5 h-5"></i>
+                    <span class="text-xs font-bold">同步資料</span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- 全域時間過濾器：只在總覽與收支顯示 -->
+        <div id="global-filters" class="flex gap-2 items-center hidden">
+            <select id="year-filter" class="flex-1 p-2 border rounded-lg bg-white text-sm outline-none shadow-sm text-gray-600"></select>
+            <select id="month-filter" class="flex-1 p-2 border rounded-lg bg-white text-sm outline-none shadow-sm text-gray-600"></select>
+        </div>
+    </header>
 
-        // 資料來源設定
-        const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRfdXmG5deMAoGDbfQbftAZiXCIHhDlRbqlkqBcRAGZ8lVSP6YD5UuWKN5sCppAQqE16wEy-AaCvQmA/pub?gid=107014608&single=true&output=csv';
+    <!-- Debug Modal -->
+    <div id="debug-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl p-4 w-full max-w-lg max-h-[80vh] overflow-y-auto">
+            <h2 class="font-bold text-lg mb-2 flex items-center gap-2 text-[#4A4444]">
+                <i data-lucide="search" class="w-5 h-5"></i> 資料診斷中心
+            </h2>
+            <p class="text-xs text-gray-500 mb-2">已鎖定欄位：1.時間 2.費用 3.類別 4.備註</p>
+            <div id="debug-content" class="text-xs space-y-2 font-mono bg-gray-100 p-2 rounded max-h-64 overflow-y-auto"></div>
+            <button onclick="document.getElementById('debug-modal').classList.add('hidden')" class="mt-4 w-full bg-[#A68D85] text-white py-2 rounded-lg font-bold">關閉</button>
+        </div>
+    </div>
 
-        // 分類定義與色彩
-        const CATEGORIES = ['食物', '衣物', '娛樂', '交通', '教育', '孝親', '股票', '儲蓄', '保養', '醫療', '國家', '收入', '其他'];
-        const EXPENSE_CATEGORIES = ['食物', '衣物', '娛樂', '交通', '教育', '孝親', '保養', '醫療', '國家', '其他'];
-        const INCOME_CATEGORIES = ['收入'];
-        const INVEST_CATEGORIES = ['股票', '儲蓄'];
-        const CATEGORY_COLORS = {
-            '食物': '#D69E9E', '衣物': '#B09A8F', '娛樂': '#9E8479', '交通': '#8C766D',
-            '教育': '#C48D88', '孝親': '#B88F8D', '股票': '#708A7B', '儲蓄': '#8EA397',
-            '保養': '#C4A4A3', '醫療': '#A68E94', '國家': '#917F79', '收入': '#6A917B', '其他': '#A0A0A0'
-        };
+    <main class="max-w-4xl mx-auto px-4 mt-2">
+        
+        <!-- #記帳頁 -->
+        <section id="record" class="tab-content active">
+            <div class="iframe-container text-center">
+                <iframe id="google-form" src="https://docs.google.com/forms/d/e/1FAIpQLSdbf0oKCC-6izeCIKaGhKjOc_vGHe-EnCLWr4iiCJbeTmaHfA/viewform?embedded=true">載入中…</iframe>
+            </div>
+        </section>
 
-        // 圖示組件 (手寫簡單版以確保不依賴外部 React 套件)
-        const Icon = ({ name, size = 20, className = "" }) => {
-            useEffect(() => { lucide.createIcons(); }, [name]);
-            return <i data-lucide={name} style={{width: size, height: size}} className={className}></i>;
-        };
-
-        function App() {
-            const [activeTab, setActiveTab] = useState('form');
-            const [data, setData] = useState([]);
-            const [loading, setLoading] = useState(true);
-            const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-            const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-            const [chartType, setChartType] = useState('pie');
-
-            const parseCSVLine = (text) => {
-                const re = /(?!\s*$)\s*(?:'([^']*)'|"([^"]*)"|([^,]*))\s*(?:,|$)/g;
-                const res = [];
-                let match;
-                while ((match = re.exec(text)) !== null) {
-                    res.push(match[1] || match[2] || match[3] || "");
-                }
-                return res;
-            };
-
-            const loadData = async () => {
-                setLoading(true);
-                try {
-                    const res = await fetch(`${CSV_URL}&t=${Date.now()}`);
-                    const text = await res.text();
-                    const lines = text.split(/\r?\n/);
-                    const result = [];
-                    for (let i = 1; i < lines.length; i++) {
-                        const parts = parseCSVLine(lines[i]);
-                        if (parts.length >= 3) {
-                            const amount = parseFloat(parts[1].replace(/,/g, ''));
-                            const dateMatch = parts[0].split(' ')[0].match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-                            if (dateMatch && !isNaN(amount)) {
-                                result.push({ amount, category: parts[2].trim(), year: parseInt(dateMatch[1]), month: parseInt(dateMatch[2]) });
-                            }
-                        }
-                    }
-                    setData(result);
-                } catch (err) { console.error(err); }
-                finally { setLoading(false); }
-            };
-
-            useEffect(() => { loadData(); }, []);
-
-            const stats = useMemo(() => {
-                const totals = { income: 0, expense: 0, invest: 0, byCategory: {} };
-                data.filter(d => d.year === selectedYear && (selectedMonth === 0 || d.month === selectedMonth)).forEach(d => {
-                    if (INCOME_CATEGORIES.includes(d.category)) totals.income += d.amount;
-                    else if (INVEST_CATEGORIES.includes(d.category)) totals.invest += d.amount;
-                    else if (EXPENSE_CATEGORIES.includes(d.category)) totals.expense += d.amount;
-                    totals.byCategory[d.category] = (totals.byCategory[d.category] || 0) + d.amount;
-                });
-                return totals;
-            }, [data, selectedYear, selectedMonth]);
-
-            const chartData = Object.entries(stats.byCategory)
-                .filter(([name]) => EXPENSE_CATEGORIES.includes(name))
-                .map(([name, value]) => ({ name, value }))
-                .sort((a, b) => b.value - a.value);
-
-            return (
-                <div className="flex flex-col h-screen max-w-md mx-auto bg-[#FCF5F7] shadow-2xl overflow-hidden font-sans">
-                    <header className="bg-white py-4 px-6 border-b border-[#E8D3D1] flex justify-between items-center z-20">
-                        <h1 className="text-xl font-black text-[#B09A8F]">個人記帳本</h1>
-                        <button onClick={loadData} className={`p-2 text-[#B09A8F] ${loading ? 'animate-spin' : ''}`}>
-                            <Icon name="refresh-cw" />
-                        </button>
-                    </header>
-
-                    <div className="flex-1 relative overflow-y-auto">
-                        {activeTab === 'form' ? (
-                            <iframe src="https://docs.google.com/forms/d/e/1FAIpQLSdbf0oKCC-6izeCIKaGhKjOc_vGHe-EnCLWr4iiCJbeTmaHfA/viewform?embedded=true" className="w-full h-[1000px] border-0">載入中…</iframe>
-                        ) : (
-                            <div className="p-5 pb-24">
-                                <div className="flex gap-2 mb-6">
-                                    <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="flex-1 p-2 border-2 border-[#E8D3D1] rounded-xl font-bold">
-                                        {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y} 年</option>)}
-                                    </select>
-                                    <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="flex-1 p-2 border-2 border-[#E8D3D1] rounded-xl font-bold">
-                                        <option value={0}>全年</option>
-                                        {[...Array(12)].map((_, i) => <option key={i+1} value={i+1}>{i+1} 月</option>)}
-                                    </select>
-                                </div>
-
-                                <div className="grid grid-cols-3 gap-2 mb-6">
-                                    <div className="bg-white p-3 rounded-xl shadow-sm border-b-4 border-[#6A917B] text-center">
-                                        <div className="text-[10px] text-gray-500">收入</div>
-                                        <div className="text-sm font-bold">${stats.income.toLocaleString()}</div>
-                                    </div>
-                                    <div className="bg-white p-3 rounded-xl shadow-sm border-b-4 border-[#D69E9E] text-center">
-                                        <div className="text-[10px] text-gray-500">支出</div>
-                                        <div className="text-sm font-bold">${stats.expense.toLocaleString()}</div>
-                                    </div>
-                                    <div className="bg-white p-3 rounded-xl shadow-sm border-b-4 border-[#708A7B] text-center">
-                                        <div className="text-[10px] text-gray-500">投資</div>
-                                        <div className="text-sm font-bold">${stats.invest.toLocaleString()}</div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-white p-4 rounded-3xl shadow-md border border-[#E8D3D1] h-80">
-                                    <div className="flex justify-between mb-4">
-                                        <h3 className="text-xs font-bold text-gray-400">支出分析</h3>
-                                        <div className="flex bg-gray-100 rounded-lg p-1 text-[10px]">
-                                            <button onClick={()=>setChartType('pie')} className={`px-2 py-1 ${chartType==='pie'?'bg-white shadow-sm':''}`}>圓餅</button>
-                                            <button onClick={()=>setChartType('bar')} className={`px-2 py-1 ${chartType==='bar'?'bg-white shadow-sm':''}`}>長條</button>
-                                        </div>
-                                    </div>
-                                    <ResponsiveContainer width="100%" height="80%">
-                                        {chartType === 'pie' ? (
-                                            <PieChart>
-                                                <Pie data={chartData} innerRadius={50} outerRadius={80} dataKey="value">
-                                                    {chartData.map((entry, index) => <Cell key={index} fill={CATEGORY_COLORS[entry.name]} />)}
-                                                </Pie>
-                                                <Tooltip />
-                                                <Legend />
-                                            </PieChart>
-                                        ) : (
-                                            <BarChart data={chartData}>
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                                <XAxis dataKey="name" tick={{fontSize: 10}} />
-                                                <YAxis hide />
-                                                <Tooltip />
-                                                <Bar dataKey="value">
-                                                    {chartData.map((entry, index) => <Cell key={index} fill={CATEGORY_COLORS[entry.name]} />)}
-                                                </Bar>
-                                            </BarChart>
-                                        )}
-                                    </ResponsiveContainer>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <nav className="fixed bottom-0 max-w-md w-full bg-white border-t border-[#E8D3D1] flex justify-around py-3 z-30">
-                        <button onClick={() => setActiveTab('form')} className={`flex flex-col items-center ${activeTab === 'form' ? 'text-[#D69E9E]' : 'text-gray-400'}`}>
-                            <Icon name="file-edit" />
-                            <span className="text-[10px] mt-1 font-bold">填寫</span>
-                        </button>
-                        <button onClick={() => setActiveTab('overview')} className={`flex flex-col items-center ${activeTab === 'overview' ? 'text-[#D69E9E]' : 'text-gray-400'}`}>
-                            <Icon name="pie-chart" />
-                            <span className="text-[10px] mt-1 font-bold">報表</span>
-                        </button>
-                    </nav>
+        <!-- #總覽頁 -->
+        <section id="overview" class="tab-content">
+            <div class="flex justify-end mb-4">
+                <div class="flex bg-gray-100 rounded-lg p-1">
+                    <button onclick="toggleChartMode('month')" id="btn-month-view" class="px-3 py-1 rounded-md text-xs btn-active transition-all">月統計</button>
+                    <button onclick="toggleChartMode('year')" id="btn-year-view" class="px-3 py-1 rounded-md text-xs transition-all">年趨勢</button>
                 </div>
-            );
+            </div>
+
+            <!-- 圖表卡片 -->
+            <div class="card min-h-[350px] flex flex-col justify-center relative">
+                <div id="chart-header" class="mb-4 flex justify-between items-center">
+                    <span id="chart-title" class="text-sm font-bold text-[#A68D85]">類別消費佔比</span>
+                    <div id="pie-bar-toggle" class="flex bg-gray-50 rounded p-1">
+                         <button onclick="toggleChartType('pie')" id="btn-pie" class="px-2 py-0.5 rounded text-[10px] btn-active">圓餅</button>
+                         <button onclick="toggleChartType('bar')" id="btn-bar" class="px-2 py-0.5 rounded text-[10px]">長條</button>
+                    </div>
+                </div>
+                <div class="relative h-64">
+                    <canvas id="mainChart"></canvas>
+                </div>
+                <div id="no-data-msg" class="hidden text-center text-gray-400 py-10">
+                    <i data-lucide="info" class="mx-auto w-10 h-10 mb-2 opacity-20"></i>
+                    <p>目前查無數據</p>
+                </div>
+            </div>
+
+            <!-- 消費明細 -->
+            <div class="card">
+                <h3 class="font-bold mb-3 border-b pb-2 flex justify-between items-center">
+                    <span class="flex items-center gap-1 text-[#A68D85]"><i data-lucide="list" class="w-4 h-4"></i> 消費明細</span>
+                    <span id="overview-total" class="text-red-500 font-black"></span>
+                </h3>
+                <div id="expense-list" class="space-y-2 max-h-80 overflow-y-auto text-sm custom-scroll"></div>
+            </div>
+        </section>
+
+        <!-- #收支情形 -->
+        <section id="budget" class="tab-content">
+            <!-- 數據概覽卡片 -->
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div class="card bg-white border-l-4 border-blue-400 !mb-0 shadow-sm">
+                    <p class="text-[10px] text-gray-400 font-bold mb-1">本月總收入</p>
+                    <p id="total-income" class="text-xl font-black text-blue-600">$0</p>
+                </div>
+                <div class="card bg-white border-l-4 border-emerald-400 !mb-0 shadow-sm">
+                    <p class="text-[10px] text-gray-400 font-bold mb-1">儲蓄資產加總</p>
+                    <p id="total-savings" class="text-xl font-black text-emerald-600">$0</p>
+                    <p class="text-[9px] text-gray-300">(股票 + 儲蓄)</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="flex justify-between items-center border-b pb-3 mb-4">
+                    <h3 class="font-bold flex items-center gap-1"><i data-lucide="target" class="w-4 h-4 text-[#A68D85]"></i> 預算規劃</h3>
+                    <button onclick="saveBudgets()" class="text-xs bg-[#A68D85] px-4 py-1.5 rounded-full text-white shadow-sm font-bold">儲存</button>
+                </div>
+                <div id="budget-comparison" class="space-y-5"></div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Bottom Navigation -->
+    <nav class="glass-nav fixed bottom-0 w-full flex justify-around py-3 px-2 z-20">
+        <button onclick="switchTab('record')" class="flex flex-col items-center nav-btn active text-[#A68D85]" data-tab="record">
+            <i data-lucide="plus-circle"></i>
+            <span class="text-[10px] mt-1 font-bold">記帳</span>
+        </button>
+        <button onclick="switchTab('overview')" class="flex flex-col items-center nav-btn text-gray-400" data-tab="overview">
+            <i data-lucide="pie-chart"></i>
+            <span class="text-[10px] mt-1 font-bold">總覽</span>
+        </button>
+        <button onclick="switchTab('budget')" class="flex flex-col items-center nav-btn text-gray-400" data-tab="budget">
+            <i data-lucide="wallet"></i>
+            <span class="text-[10px] mt-1 font-bold">收支</span>
+        </button>
+    </nav>
+
+    <script>
+        const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRfdXmG5deMAoGDbfQbftAZiXCIHhDlRbqlkqBcRAGZ8lVSP6YD5UuWKN5sCppAQqE16wEy-AaCvQmA/pub?gid=107014608&single=true&output=csv';
+        
+        const ORDERED_CATEGORIES = ['食物', '衣物', '娛樂', '交通', '教育', '孝親', '股票', '儲蓄', '保養', '醫療', '國家', '收入', '其他'];
+        const EXCLUDE_FROM_EXPENSE = ['股票', '收入']; 
+        const SAVINGS_CATEGORIES = ['股票', '儲蓄']; 
+        
+        let rawData = [];
+        let currentChart = null;
+        let chartType = 'pie';
+        let chartMode = 'month'; 
+        let budgets = JSON.parse(localStorage.getItem('user_budgets')) || {};
+
+        const categoryColors = {
+            '食物': '#FFB7B2', '衣物': '#FFDAC1', '娛樂': '#E2F0CB', '交通': '#B5EAD7',
+            '教育': '#C7CEEA', '孝親': '#FF9AA2', '股票': '#D8C6BC', '儲蓄': '#A68D85',
+            '保養': '#F67280', '醫療': '#C06C84', '國家': '#6C5B7B', '收入': '#355C7D', '其他': '#E8D3D1'
+        };
+
+        window.onload = () => {
+            lucide.createIcons();
+            initDateFilters();
+            fetchData();
+        };
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('text-[#A68D85]', 'active'));
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.add('text-gray-400'));
+
+            document.getElementById(tabId).classList.add('active');
+            const activeBtn = document.querySelector(`[data-tab="${tabId}"]`);
+            activeBtn.classList.add('text-[#A68D85]', 'active');
+            activeBtn.classList.remove('text-gray-400');
+
+            // 判斷是否顯示時間過濾器
+            const filterContainer = document.getElementById('global-filters');
+            if (tabId === 'record') {
+                filterContainer.classList.add('hidden');
+            } else {
+                filterContainer.classList.remove('hidden');
+            }
+
+            const titles = { 'record': '記帳', 'overview': '消費統計', 'budget': '收支預算' };
+            document.getElementById('page-title').innerText = titles[tabId];
+            updateUI();
         }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        function initDateFilters() {
+            const mSelect = document.getElementById('month-filter');
+            const now = new Date();
+            mSelect.innerHTML = '';
+            for (let i = 1; i <= 12; i++) {
+                let m = i.toString().padStart(2, '0');
+                mSelect.innerHTML += `<option value="${m}" ${i === (now.getMonth() + 1) ? 'selected' : ''}>${i}月</option>`;
+            }
+            document.getElementById('year-filter').onchange = updateUI;
+            mSelect.onchange = updateUI;
+        }
+
+        function flexibleParseDate(str) {
+            if (!str) return null;
+            let s = str.toString().trim();
+            let d = new Date(s.replace('上午', 'AM').replace('下午', 'PM').replace(/\//g, '-'));
+            if (isNaN(d.getTime())) {
+                let match = s.match(/(\d{4})[^\d](\d{1,2})[^\d](\d{1,2})/);
+                if (match) d = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
+            }
+            return isNaN(d.getTime()) ? null : d;
+        }
+
+        async function fetchData() {
+            const icon = document.getElementById('refresh-icon');
+            icon.classList.add('refresh-btn', 'loading');
+            const url = `${CSV_URL}&t=${new Date().getTime()}`;
+
+            Papa.parse(url, {
+                download: true,
+                header: false,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    const rows = results.data;
+                    if (rows.length <= 1) {
+                        icon.classList.remove('loading');
+                        return;
+                    }
+
+                    const timeIdx = 0, amountIdx = 1, catIdx = 2, noteIdx = 3;
+
+                    rawData = [];
+                    for (let i = 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row[timeIdx] && !row[amountIdx]) continue;
+
+                        const dateObj = flexibleParseDate(row[timeIdx]);
+                        const amountStr = row[amountIdx] ? row[amountIdx].toString().replace(/[^0-9.-]/g, '') : "0";
+                        const amount = parseFloat(amountStr) || 0;
+                        const cat = row[catIdx] ? row[catIdx].trim() : '其他';
+                        const note = row[noteIdx] ? row[noteIdx].trim() : '';
+
+                        if (dateObj) {
+                            rawData.push({ time: dateObj, amount: amount, category: cat, note: note });
+                        }
+                    }
+
+                    if (rawData.length > 0) {
+                        rawData.sort((a, b) => b.time - a.time);
+                        updateDateFiltersDynamic();
+                    }
+
+                    updateUI();
+                    setTimeout(() => {
+                        icon.classList.remove('loading');
+                        lucide.createIcons();
+                    }, 500);
+                },
+                error: function(err) {
+                    icon.classList.remove('loading');
+                }
+            });
+        }
+
+        function updateDateFiltersDynamic() {
+            if (rawData.length === 0) return;
+            const ySelect = document.getElementById('year-filter');
+            const mSelect = document.getElementById('month-filter');
+            const years = [...new Set(rawData.map(item => item.time.getFullYear()))].sort((a, b) => b - a);
+            const currentSelectedYear = ySelect.value;
+            ySelect.innerHTML = '';
+            years.forEach(y => ySelect.innerHTML += `<option value="${y}">${y}年</option>`);
+            if (!currentSelectedYear || !years.includes(parseInt(currentSelectedYear))) {
+                const latestDate = rawData[0].time;
+                ySelect.value = latestDate.getFullYear().toString();
+                mSelect.value = (latestDate.getMonth() + 1).toString().padStart(2, '0');
+            } else {
+                ySelect.value = currentSelectedYear;
+            }
+        }
+
+        function updateUI() {
+            const year = document.getElementById('year-filter').value;
+            const month = document.getElementById('month-filter').value;
+
+            const monthData = rawData.filter(item => {
+                return item.time.getFullYear().toString() === year && 
+                       (item.time.getMonth() + 1).toString().padStart(2, '0') === month;
+            });
+
+            const yearData = rawData.filter(item => item.time.getFullYear().toString() === year);
+
+            // 更新總覽頁圖表
+            if (chartMode === 'month') {
+                document.getElementById('chart-title').innerText = '本月類別消費佔比';
+                document.getElementById('pie-bar-toggle').classList.remove('hidden');
+                updateMonthChart(monthData);
+            } else {
+                document.getElementById('chart-title').innerText = '年度消費趨勢走勢';
+                document.getElementById('pie-bar-toggle').classList.add('hidden');
+                updateYearChart(yearData);
+            }
+
+            // 更新總覽頁明細
+            const expenseData = monthData.filter(item => !EXCLUDE_FROM_EXPENSE.includes(item.category));
+            let totalExpense = expenseData.reduce((sum, item) => sum + item.amount, 0);
+            document.getElementById('overview-total').innerText = totalExpense > 0 ? `-$${totalExpense.toLocaleString()}` : "";
+            renderList(expenseData);
+
+            // 更新收支頁數據卡片 (確保這裡也隨月份連動)
+            const incomeTotal = monthData
+                .filter(item => item.category === '收入')
+                .reduce((sum, item) => sum + item.amount, 0);
+            
+            const savingsTotal = monthData
+                .filter(item => SAVINGS_CATEGORIES.includes(item.category))
+                .reduce((sum, item) => sum + item.amount, 0);
+
+            document.getElementById('total-income').innerText = `$${incomeTotal.toLocaleString()}`;
+            document.getElementById('total-savings').innerText = `$${savingsTotal.toLocaleString()}`;
+
+            // 更新收支頁預算清單 (確保這裡也隨月份連動)
+            const actualSums = {};
+            monthData.forEach(item => {
+                if (item.category !== '收入') {
+                    actualSums[item.category] = (actualSums[item.category] || 0) + item.amount;
+                }
+            });
+            renderBudgetComparison(actualSums);
+        }
+
+        function updateMonthChart(data) {
+            const canvas = document.getElementById('mainChart');
+            const noData = document.getElementById('no-data-msg');
+            const expenseData = data.filter(item => !EXCLUDE_FROM_EXPENSE.includes(item.category));
+            const sums = {};
+            expenseData.forEach(item => sums[item.category] = (sums[item.category] || 0) + item.amount);
+            const labels = ORDERED_CATEGORIES.filter(c => sums[c] > 0);
+            if (labels.length === 0) {
+                canvas.style.display = 'none';
+                noData.classList.remove('hidden');
+                return;
+            }
+            canvas.style.display = 'block';
+            noData.classList.add('hidden');
+            const chartData = labels.map(l => sums[l]);
+            const colors = labels.map(l => categoryColors[l]);
+            if (currentChart) currentChart.destroy();
+            currentChart = new Chart(canvas, {
+                type: chartType,
+                data: {
+                    labels: labels,
+                    datasets: [{ data: chartData, backgroundColor: colors, borderWidth: 2 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, font: { size: 10 } } } }
+                }
+            });
+        }
+
+        function updateYearChart(data) {
+            const canvas = document.getElementById('mainChart');
+            const noData = document.getElementById('no-data-msg');
+            if (data.length === 0) {
+                canvas.style.display = 'none';
+                noData.classList.remove('hidden');
+                return;
+            }
+            canvas.style.display = 'block';
+            noData.classList.add('hidden');
+            const monthSums = Array(12).fill(0);
+            data.filter(item => !EXCLUDE_FROM_EXPENSE.includes(item.category))
+                .forEach(item => monthSums[item.time.getMonth()] += item.amount);
+            if (currentChart) currentChart.destroy();
+            currentChart = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'],
+                    datasets: [{
+                        label: '每月總支出',
+                        data: monthSums,
+                        borderColor: '#A68D85',
+                        backgroundColor: 'rgba(166, 141, 133, 0.1)',
+                        fill: true, tension: 0.4, pointBackgroundColor: '#A68D85'
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, grid: { display: false } } },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        function renderList(items) {
+            const listEl = document.getElementById('expense-list');
+            listEl.innerHTML = '';
+            if (items.length === 0) {
+                listEl.innerHTML = '<div class="text-center py-6 text-gray-400">尚無支出數據</div>';
+                return;
+            }
+            items.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'flex justify-between items-start p-3 border-b border-gray-50';
+                div.innerHTML = `
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-[#4A4444]">${item.category}</span>
+                            <span class="text-[10px] text-gray-300">${item.time.toLocaleDateString()}</span>
+                        </div>
+                        ${item.note ? `<div class="text-xs text-gray-400 mt-0.5 italic">${item.note}</div>` : ''}
+                    </div>
+                    <div class="font-black text-[#A68D85] ml-2">$${item.amount.toLocaleString()}</div>
+                `;
+                listEl.appendChild(div);
+            });
+        }
+
+        function renderBudgetComparison(actuals) {
+            const container = document.getElementById('budget-comparison');
+            container.innerHTML = '';
+            const displayCats = ORDERED_CATEGORIES.filter(c => c !== '收入');
+            displayCats.forEach(cat => {
+                const actual = actuals[cat] || 0;
+                const budget = budgets[cat] || 0;
+                const percent = budget > 0 ? Math.min((actual / budget) * 100, 100) : (actual > 0 ? 100 : 0);
+                let barColor = 'bg-green-300';
+                if (percent >= 100) barColor = 'bg-red-400';
+                else if (percent > 85) barColor = 'bg-orange-300';
+                const itemDiv = document.createElement('div');
+                itemDiv.innerHTML = `
+                    <div class="flex justify-between text-xs mb-1 items-center">
+                        <span class="font-bold text-[#4A4444]">${cat}</span>
+                        <div class="flex items-center gap-1">
+                            <span class="text-gray-400 text-[10px]">預算:</span>
+                            <input type="number" value="${budget}" onchange="updateBudget('${cat}', this.value)" class="w-14 text-right border-b border-gray-200 outline-none text-[#A68D85] font-bold">
+                        </div>
+                    </div>
+                    <div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                        <div class="${barColor} h-full transition-all duration-500" style="width: ${percent}%"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] mt-1">
+                        <span class="text-gray-400">實支: $${actual.toLocaleString()}</span>
+                        <span class="${percent >= 100 ? 'text-red-500 font-bold' : 'text-gray-300'}">${percent.toFixed(0)}%</span>
+                    </div>
+                `;
+                container.appendChild(itemDiv);
+            });
+        }
+
+        function updateBudget(cat, val) { budgets[cat] = parseFloat(val) || 0; }
+        
+        function toggleChartMode(mode) {
+            chartMode = mode;
+            document.getElementById('btn-month-view').classList.toggle('btn-active', mode === 'month');
+            document.getElementById('btn-year-view').classList.toggle('btn-active', mode === 'year');
+            updateUI();
+        }
+
+        function toggleChartType(type) {
+            chartType = type;
+            document.getElementById('btn-pie').classList.toggle('btn-active', type === 'pie');
+            document.getElementById('btn-bar').classList.toggle('btn-active', type === 'bar');
+            updateUI();
+        }
+
+        function saveBudgets() {
+            localStorage.setItem('user_budgets', JSON.stringify(budgets));
+            updateUI();
+            const msg = document.createElement('div');
+            msg.className = "fixed top-1/2 left-1/2 -translate-x-1/2 bg-black bg-opacity-70 text-white px-6 py-3 rounded-xl text-xs z-50 shadow-lg";
+            msg.innerText = "已儲存預算設定 ✨";
+            document.body.appendChild(msg);
+            setTimeout(() => msg.remove(), 1000);
+        }
+
+        function showDebug() {
+            const content = document.getElementById('debug-content');
+            if (!rawData.length) {
+                content.innerHTML = '<span class="text-red-500">尚未抓取到資料</span>';
+            } else {
+                content.innerHTML = `<p class="text-blue-600 font-bold">資料庫連線正常</p><p>已解析 ${rawData.length} 筆資料</p>`;
+            }
+            document.getElementById('debug-modal').classList.remove('hidden');
+        }
     </script>
 </body>
 </html>
