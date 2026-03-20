@@ -1,324 +1,196 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
-} from 'recharts';
-import { FileEdit, PieChart as PieChartIcon, Wallet, RefreshCw } from 'lucide-react';
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>個人記帳本 - Web App</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { background-color: #FCF5F7; }
+        /* 隱藏捲軸但保留功能 */
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
 
-// 資料來源設定
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRfdXmG5deMAoGDbfQbftAZiXCIHhDlRbqlkqBcRAGZ8lVSP6YD5UuWKN5sCppAQqE16wEy-AaCvQmA/pub?gid=107014608&single=true&output=csv';
+    <script type="text/babel">
+        // 從全域變數中取出需要的 React 與 Recharts 組件
+        const { useState, useEffect, useMemo } = React;
+        const { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
 
-// 固定的類別排序
-const CATEGORIES = ['食物', '衣物', '娛樂', '交通', '教育', '孝親', '股票', '儲蓄', '保養', '醫療', '國家', '收入', '其他'];
+        // 資料來源設定
+        const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRfdXmG5deMAoGDbfQbftAZiXCIHhDlRbqlkqBcRAGZ8lVSP6YD5UuWKN5sCppAQqE16wEy-AaCvQmA/pub?gid=107014608&single=true&output=csv';
 
-// 分類定義
-const EXPENSE_CATEGORIES = ['食物', '衣物', '娛樂', '交通', '教育', '孝親', '保養', '醫療', '國家', '其他'];
-const INCOME_CATEGORIES = ['收入'];
-const INVEST_CATEGORIES = ['股票', '儲蓄'];
+        // 分類定義與色彩
+        const CATEGORIES = ['食物', '衣物', '娛樂', '交通', '教育', '孝親', '股票', '儲蓄', '保養', '醫療', '國家', '收入', '其他'];
+        const EXPENSE_CATEGORIES = ['食物', '衣物', '娛樂', '交通', '教育', '孝親', '保養', '醫療', '國家', '其他'];
+        const INCOME_CATEGORIES = ['收入'];
+        const INVEST_CATEGORIES = ['股票', '儲蓄'];
+        const CATEGORY_COLORS = {
+            '食物': '#D69E9E', '衣物': '#B09A8F', '娛樂': '#9E8479', '交通': '#8C766D',
+            '教育': '#C48D88', '孝親': '#B88F8D', '股票': '#708A7B', '儲蓄': '#8EA397',
+            '保養': '#C4A4A3', '醫療': '#A68E94', '國家': '#917F79', '收入': '#6A917B', '其他': '#A0A0A0'
+        };
 
-// 高對比配色
-const CATEGORY_COLORS = {
-  '食物': '#D69E9E', '衣物': '#B09A8F', '娛樂': '#9E8479', '交通': '#8C766D',
-  '教育': '#C48D88', '孝親': '#B88F8D', '股票': '#708A7B', '儲蓄': '#8EA397',
-  '保養': '#C4A4A3', '醫療': '#A68E94', '國家': '#917F79', '收入': '#6A917B', '其他': '#A0A0A0'
-};
+        // 圖示組件 (手寫簡單版以確保不依賴外部 React 套件)
+        const Icon = ({ name, size = 20, className = "" }) => {
+            useEffect(() => { lucide.createIcons(); }, [name]);
+            return <i data-lucide={name} style={{width: size, height: size}} className={className}></i>;
+        };
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState('form');
-  const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  
-  // 日期篩選狀態
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  const [chartType, setChartType] = useState('pie');
+        function App() {
+            const [activeTab, setActiveTab] = useState('form');
+            const [data, setData] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+            const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+            const [chartType, setChartType] = useState('pie');
 
-  // 預算目標狀態
-  const [budgetTargets, setBudgetTargets] = useState(() => {
-    const saved = localStorage.getItem('budgetTargets');
-    return saved ? JSON.parse(saved) : {};
-  });
+            const parseCSVLine = (text) => {
+                const re = /(?!\s*$)\s*(?:'([^']*)'|"([^"]*)"|([^,]*))\s*(?:,|$)/g;
+                const res = [];
+                let match;
+                while ((match = re.exec(text)) !== null) {
+                    res.push(match[1] || match[2] || match[3] || "");
+                }
+                return res;
+            };
 
-  // 強健的 CSV 行解析 (處理引號與逗號)
-  const parseCSVLine = (text) => {
-    const re = /(?!\s*$)\s*(?:'([^']*)'|"([^"]*)"|([^,]*))\s*(?:,|$)/g;
-    const res = [];
-    let match;
-    while ((match = re.exec(text)) !== null) {
-      res.push(match[1] || match[2] || match[3] || "");
-    }
-    if (text.endsWith(',')) res.push("");
-    return res;
-  };
+            const loadData = async () => {
+                setLoading(true);
+                try {
+                    const res = await fetch(`${CSV_URL}&t=${Date.now()}`);
+                    const text = await res.text();
+                    const lines = text.split(/\r?\n/);
+                    const result = [];
+                    for (let i = 1; i < lines.length; i++) {
+                        const parts = parseCSVLine(lines[i]);
+                        if (parts.length >= 3) {
+                            const amount = parseFloat(parts[1].replace(/,/g, ''));
+                            const dateMatch = parts[0].split(' ')[0].match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+                            if (dateMatch && !isNaN(amount)) {
+                                result.push({ amount, category: parts[2].trim(), year: parseInt(dateMatch[1]), month: parseInt(dateMatch[2]) });
+                            }
+                        }
+                    }
+                    setData(result);
+                } catch (err) { console.error(err); }
+                finally { setLoading(false); }
+            };
 
-  const parseCSV = (csvText) => {
-    const lines = csvText.split(/\r?\n/);
-    const result = [];
-    
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      
-      const parts = parseCSVLine(line);
-      
-      if (parts.length >= 3) {
-        const timestamp = parts[0];
-        // 關鍵修復：移除千分位逗號並精確轉為數字
-        const amountStr = parts[1].replace(/,/g, '').trim();
-        const amount = parseFloat(amountStr);
-        const category = parts[2].trim();
+            useEffect(() => { loadData(); }, []);
 
-        // 解析日期 (支持多種分隔符)
-        const dateMatch = timestamp.split(' ')[0].match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-        if (dateMatch && !isNaN(amount)) {
-          result.push({ 
-            amount, 
-            category, 
-            year: parseInt(dateMatch[1], 10), 
-            month: parseInt(dateMatch[2], 10) 
-          });
-        }
-      }
-    }
-    return result;
-  };
+            const stats = useMemo(() => {
+                const totals = { income: 0, expense: 0, invest: 0, byCategory: {} };
+                data.filter(d => d.year === selectedYear && (selectedMonth === 0 || d.month === selectedMonth)).forEach(d => {
+                    if (INCOME_CATEGORIES.includes(d.category)) totals.income += d.amount;
+                    else if (INVEST_CATEGORIES.includes(d.category)) totals.invest += d.amount;
+                    else if (EXPENSE_CATEGORIES.includes(d.category)) totals.expense += d.amount;
+                    totals.byCategory[d.category] = (totals.byCategory[d.category] || 0) + d.amount;
+                });
+                return totals;
+            }, [data, selectedYear, selectedMonth]);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${CSV_URL}&t=${Date.now()}`);
-      const text = await res.text();
-      const parsedData = parseCSV(text);
-      setData(parsedData);
+            const chartData = Object.entries(stats.byCategory)
+                .filter(([name]) => EXPENSE_CATEGORIES.includes(name))
+                .map(([name, value]) => ({ name, value }))
+                .sort((a, b) => b.value - a.value);
 
-      if (parsedData.length > 0 && loading) {
-        const latest = [...parsedData].sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month))[0];
-        setSelectedYear(latest.year);
-        setSelectedMonth(latest.month);
-      }
-    } catch (err) {
-      console.error('Fetch error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+            return (
+                <div className="flex flex-col h-screen max-w-md mx-auto bg-[#FCF5F7] shadow-2xl overflow-hidden font-sans">
+                    <header className="bg-white py-4 px-6 border-b border-[#E8D3D1] flex justify-between items-center z-20">
+                        <h1 className="text-xl font-black text-[#B09A8F]">個人記帳本</h1>
+                        <button onClick={loadData} className={`p-2 text-[#B09A8F] ${loading ? 'animate-spin' : ''}`}>
+                            <Icon name="refresh-cw" />
+                        </button>
+                    </header>
 
-  useEffect(() => {
-    loadData();
-  }, []);
+                    <div className="flex-1 relative overflow-y-auto">
+                        {activeTab === 'form' ? (
+                            <iframe src="https://docs.google.com/forms/d/e/1FAIpQLSdbf0oKCC-6izeCIKaGhKjOc_vGHe-EnCLWr4iiCJbeTmaHfA/viewform?embedded=true" className="w-full h-[1000px] border-0">載入中…</iframe>
+                        ) : (
+                            <div className="p-5 pb-24">
+                                <div className="flex gap-2 mb-6">
+                                    <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="flex-1 p-2 border-2 border-[#E8D3D1] rounded-xl font-bold">
+                                        {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y} 年</option>)}
+                                    </select>
+                                    <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="flex-1 p-2 border-2 border-[#E8D3D1] rounded-xl font-bold">
+                                        <option value={0}>全年</option>
+                                        {[...Array(12)].map((_, i) => <option key={i+1} value={i+1}>{i+1} 月</option>)}
+                                    </select>
+                                </div>
 
-  const handleBudgetChange = (cat, value) => {
-    const newTargets = { ...budgetTargets, [cat]: Number(value) };
-    setBudgetTargets(newTargets);
-    localStorage.setItem('budgetTargets', JSON.stringify(newTargets));
-  };
+                                <div className="grid grid-cols-3 gap-2 mb-6">
+                                    <div className="bg-white p-3 rounded-xl shadow-sm border-b-4 border-[#6A917B] text-center">
+                                        <div className="text-[10px] text-gray-500">收入</div>
+                                        <div className="text-sm font-bold">${stats.income.toLocaleString()}</div>
+                                    </div>
+                                    <div className="bg-white p-3 rounded-xl shadow-sm border-b-4 border-[#D69E9E] text-center">
+                                        <div className="text-[10px] text-gray-500">支出</div>
+                                        <div className="text-sm font-bold">${stats.expense.toLocaleString()}</div>
+                                    </div>
+                                    <div className="bg-white p-3 rounded-xl shadow-sm border-b-4 border-[#708A7B] text-center">
+                                        <div className="text-[10px] text-gray-500">投資</div>
+                                        <div className="text-sm font-bold">${stats.invest.toLocaleString()}</div>
+                                    </div>
+                                </div>
 
-  const filteredData = useMemo(() => {
-    return data.filter(d => d.year === selectedYear && (selectedMonth === 0 || d.month === selectedMonth));
-  }, [data, selectedYear, selectedMonth]);
-
-  const availableYears = useMemo(() => {
-    const years = [...new Set(data.map(d => d.year))];
-    return years.length > 0 ? years.sort((a, b) => b - a) : [new Date().getFullYear()];
-  }, [data]);
-
-  const stats = useMemo(() => {
-    const totals = { income: 0, expense: 0, invest: 0, byCategory: {} };
-    filteredData.forEach(d => {
-      if (INCOME_CATEGORIES.includes(d.category)) totals.income += d.amount;
-      else if (INVEST_CATEGORIES.includes(d.category)) totals.invest += d.amount;
-      else if (EXPENSE_CATEGORIES.includes(d.category)) totals.expense += d.amount;
-      
-      totals.byCategory[d.category] = (totals.byCategory[d.category] || 0) + d.amount;
-    });
-    return totals;
-  }, [filteredData]);
-
-  const overviewChartData = useMemo(() => {
-    return Object.entries(stats.byCategory)
-      .filter(([name]) => EXPENSE_CATEGORIES.includes(name))
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
-  }, [stats]);
-
-  const MonthYearSelector = () => (
-    <div className="flex justify-center gap-3 mb-6 px-4">
-      <select 
-        value={selectedYear} 
-        onChange={e => setSelectedYear(Number(e.target.value))} 
-        className="flex-1 bg-white border-2 border-[#E8D3D1] rounded-xl px-2 py-3 outline-none text-[#2D2421] font-bold shadow-sm appearance-none text-center"
-      >
-        {availableYears.map(y => <option key={y} value={y}>{y} 年</option>)}
-      </select>
-      <select 
-        value={selectedMonth} 
-        onChange={e => setSelectedMonth(Number(e.target.value))} 
-        className="flex-1 bg-white border-2 border-[#E8D3D1] rounded-xl px-2 py-3 outline-none text-[#2D2421] font-bold shadow-sm appearance-none text-center"
-      >
-        <option value={0}>全年</option>
-        {[...Array(12)].map((_, i) => <option key={i+1} value={i+1}>{i+1} 月</option>)}
-      </select>
-    </div>
-  );
-
-  return (
-    <div className="flex flex-col h-screen max-w-md mx-auto bg-[#FCF5F7] shadow-2xl overflow-hidden font-sans text-[#2D2421]">
-      
-      {/* Header */}
-      <header className="flex-none bg-white py-4 px-6 border-b border-[#E8D3D1] flex justify-between items-center z-20 shadow-sm">
-        <h1 className="text-xl font-black text-[#B09A8F] tracking-tighter">個人記帳本</h1>
-        <button onClick={loadData} className="p-2 text-[#B09A8F] hover:bg-[#FCF5F7] rounded-full transition-all">
-          <RefreshCw size={22} className={loading ? 'animate-spin' : ''} />
-        </button>
-      </header>
-
-      {/* Main Container */}
-      <div className="flex-1 relative overflow-hidden bg-[#FCF5F7]">
-        
-        {/* Tab 1: Form (關鍵修復：限制容器高度避免過長滾動) */}
-        <div className={`absolute inset-0 transition-opacity duration-300 overflow-y-auto ${activeTab === 'form' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-          <div className="w-full min-h-full">
-            <iframe 
-              src="https://docs.google.com/forms/d/e/1FAIpQLSdbf0oKCC-6izeCIKaGhKjOc_vGHe-EnCLWr4iiCJbeTmaHfA/viewform?embedded=true" 
-              className="w-full h-[1000px] border-0"
-              title="Google Form"
-            >載入中…</iframe>
-          </div>
-        </div>
-
-        {/* Tab 2: Overview */}
-        <div className={`absolute inset-0 p-5 pb-24 transition-opacity duration-300 overflow-y-auto ${activeTab === 'overview' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-          <MonthYearSelector />
-          
-          <div className="grid grid-cols-3 gap-2 mb-6">
-            <div className="bg-white p-3 rounded-2xl shadow-md border-b-4 border-[#6A917B]">
-              <div className="text-[10px] text-gray-500 font-black uppercase mb-1">總收入</div>
-              <div className="text-sm font-black">${stats.income.toLocaleString()}</div>
-            </div>
-            <div className="bg-white p-3 rounded-2xl shadow-md border-b-4 border-[#D69E9E]">
-              <div className="text-[10px] text-gray-500 font-black uppercase mb-1">總支出</div>
-              <div className="text-sm font-black">${stats.expense.toLocaleString()}</div>
-            </div>
-            <div className="bg-white p-3 rounded-2xl shadow-md border-b-4 border-[#708A7B]">
-              <div className="text-[10px] text-gray-500 font-black uppercase mb-1">投資儲蓄</div>
-              <div className="text-sm font-black">${stats.invest.toLocaleString()}</div>
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-3xl shadow-lg border border-[#E8D3D1] mb-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-black text-gray-400 text-xs">支出分析</h3>
-              <div className="flex bg-[#FCF5F7] p-1 rounded-lg">
-                <button onClick={() => setChartType('pie')} className={`px-3 py-1 text-xs font-bold rounded-md ${chartType === 'pie' ? 'bg-white shadow-sm' : ''}`}>圓餅</button>
-                <button onClick={() => setChartType('bar')} className={`px-3 py-1 text-xs font-bold rounded-md ${chartType === 'bar' ? 'bg-white shadow-sm' : ''}`}>長條</button>
-              </div>
-            </div>
-            
-            <div className="h-64 w-full">
-              {overviewChartData.length > 0 ? (
-                <ResponsiveContainer>
-                  {chartType === 'pie' ? (
-                    <PieChart>
-                      <Pie data={overviewChartData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value">
-                        {overviewChartData.map((entry, i) => <Cell key={i} fill={CATEGORY_COLORS[entry.name]} />)}
-                      </Pie>
-                      <Tooltip formatter={(v) => `$${v.toLocaleString()}`} />
-                      <Legend verticalAlign="bottom" wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
-                    </PieChart>
-                  ) : (
-                    <BarChart data={overviewChartData} margin={{ left: -20 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="name" tick={{fontSize: 12, fontWeight: 'bold'}} axisLine={false} />
-                      <YAxis tick={{fontSize: 10}} axisLine={false} />
-                      <Tooltip cursor={{fill: '#FCF5F7'}} />
-                      <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                        {overviewChartData.map((entry, i) => <Cell key={i} fill={CATEGORY_COLORS[entry.name]} />)}
-                      </Bar>
-                    </BarChart>
-                  )}
-                </ResponsiveContainer>
-              ) : <div className="h-full flex items-center justify-center text-gray-400 font-bold italic">本月尚無支出記錄</div>}
-            </div>
-          </div>
-        </div>
-
-        {/* Tab 3: Budget */}
-        <div className={`absolute inset-0 p-5 pb-24 transition-opacity duration-300 overflow-y-auto ${activeTab === 'budget' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-          <MonthYearSelector />
-          <h3 className="font-black text-[#B09A8F] mb-4 flex items-center gap-2">
-            <Wallet size={18} /> 收支與預算
-          </h3>
-
-          <div className="space-y-4">
-            {CATEGORIES.map(category => {
-              const actual = stats.byCategory[category] || 0;
-              const target = budgetTargets[category] || 0;
-              const isPositive = INCOME_CATEGORIES.includes(category) || INVEST_CATEGORIES.includes(category);
-              const percent = target > 0 ? Math.min((actual / target) * 100, 100) : (actual > 0 ? 100 : 0);
-              const isOver = !isPositive && target > 0 && actual > target;
-
-              return (
-                <div key={category} className="bg-white p-4 rounded-2xl shadow-md border border-[#F0E6E8]">
-                  <div className="flex justify-between items-end mb-3">
-                    <div>
-                      <span className="text-xs font-black text-gray-400 block mb-1 uppercase tracking-widest">{category}</span>
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-6 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[category] }} />
-                        <span className="text-lg font-black tracking-tighter">${actual.toLocaleString()}</span>
-                      </div>
+                                <div className="bg-white p-4 rounded-3xl shadow-md border border-[#E8D3D1] h-80">
+                                    <div className="flex justify-between mb-4">
+                                        <h3 className="text-xs font-bold text-gray-400">支出分析</h3>
+                                        <div className="flex bg-gray-100 rounded-lg p-1 text-[10px]">
+                                            <button onClick={()=>setChartType('pie')} className={`px-2 py-1 ${chartType==='pie'?'bg-white shadow-sm':''}`}>圓餅</button>
+                                            <button onClick={()=>setChartType('bar')} className={`px-2 py-1 ${chartType==='bar'?'bg-white shadow-sm':''}`}>長條</button>
+                                        </div>
+                                    </div>
+                                    <ResponsiveContainer width="100%" height="80%">
+                                        {chartType === 'pie' ? (
+                                            <PieChart>
+                                                <Pie data={chartData} innerRadius={50} outerRadius={80} dataKey="value">
+                                                    {chartData.map((entry, index) => <Cell key={index} fill={CATEGORY_COLORS[entry.name]} />)}
+                                                </Pie>
+                                                <Tooltip />
+                                                <Legend />
+                                            </PieChart>
+                                        ) : (
+                                            <BarChart data={chartData}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                <XAxis dataKey="name" tick={{fontSize: 10}} />
+                                                <YAxis hide />
+                                                <Tooltip />
+                                                <Bar dataKey="value">
+                                                    {chartData.map((entry, index) => <Cell key={index} fill={CATEGORY_COLORS[entry.name]} />)}
+                                                </Bar>
+                                            </BarChart>
+                                        )}
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
+                        )}
                     </div>
-                    <div className="text-right">
-                      <span className="text-[10px] font-black text-gray-400 block mb-1">目標預算</span>
-                      <div className="flex items-center bg-[#FCF5F7] px-2 py-1 rounded-lg border border-[#E8D3D1]">
-                        <span className="text-xs mr-1 text-gray-400 font-bold">$</span>
-                        <input 
-                          type="number" 
-                          value={target || ''} 
-                          onChange={e => handleBudgetChange(category, e.target.value)}
-                          className="w-16 bg-transparent outline-none text-right font-black text-xs"
-                          placeholder="0"
-                        />
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="h-3 w-full bg-[#FCF5F7] rounded-full overflow-hidden border border-[#F0E6E8]">
-                    <div 
-                      className={`h-full transition-all duration-700 ${isOver ? 'bg-[#D69E9E]' : 'bg-[#D8C6BC]'}`}
-                      style={{ width: `${percent}%` }}
-                    />
-                  </div>
-                  
-                  {target > 0 && (
-                    <div className="flex justify-between mt-2">
-                      <span className="text-[10px] font-black text-gray-500">已達成 {percent.toFixed(0)}%</span>
-                      {isOver && <span className="text-[10px] font-black text-red-600 bg-red-50 px-2 rounded">超支 ${ (actual - target).toLocaleString() }</span>}
-                    </div>
-                  )}
+                    <nav className="fixed bottom-0 max-w-md w-full bg-white border-t border-[#E8D3D1] flex justify-around py-3 z-30">
+                        <button onClick={() => setActiveTab('form')} className={`flex flex-col items-center ${activeTab === 'form' ? 'text-[#D69E9E]' : 'text-gray-400'}`}>
+                            <Icon name="file-edit" />
+                            <span className="text-[10px] mt-1 font-bold">填寫</span>
+                        </button>
+                        <button onClick={() => setActiveTab('overview')} className={`flex flex-col items-center ${activeTab === 'overview' ? 'text-[#D69E9E]' : 'text-gray-400'}`}>
+                            <Icon name="pie-chart" />
+                            <span className="text-[10px] mt-1 font-bold">報表</span>
+                        </button>
+                    </nav>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+            );
+        }
 
-      {/* Navigation */}
-      <nav className="flex-none bg-white border-t border-[#E8D3D1] shadow-lg z-30">
-        <div className="flex justify-around items-center h-20">
-          <button onClick={() => setActiveTab('form')} className={`flex flex-col items-center flex-1 py-2 ${activeTab === 'form' ? 'text-[#B09A8F]' : 'text-gray-300'}`}>
-            <FileEdit size={24} strokeWidth={activeTab === 'form' ? 3 : 2} />
-            <span className="text-[10px] font-black mt-1">記帳表單</span>
-          </button>
-          <button onClick={() => setActiveTab('overview')} className={`flex flex-col items-center flex-1 py-2 ${activeTab === 'overview' ? 'text-[#B09A8F]' : 'text-gray-300'}`}>
-            <PieChartIcon size={24} strokeWidth={activeTab === 'overview' ? 3 : 2} />
-            <span className="text-[10px] font-black mt-1">財務總覽</span>
-          </button>
-          <button onClick={() => setActiveTab('budget')} className={`flex flex-col items-center flex-1 py-2 ${activeTab === 'budget' ? 'text-[#B09A8F]' : 'text-gray-300'}`}>
-            <Wallet size={24} strokeWidth={activeTab === 'budget' ? 3 : 2} />
-            <span className="text-[10px] font-black mt-1">收支對比</span>
-          </button>
-        </div>
-      </nav>
-      
-    </div>
-  );
-}
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
